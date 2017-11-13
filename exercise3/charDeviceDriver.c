@@ -6,6 +6,7 @@
 #include <asm/uaccess.h>          // Required for the copy to user function
 #include <linux/slab.h>
 #include <linux/gfp.h>
+#include <string.h>
 #define  DEVICE_NAME "opsysmem"    ///< The device will appear at /dev/opsysmem using this value
 #define  CLASS_NAME  "ops"        ///< The device class -- this is a character device driver
 
@@ -19,39 +20,66 @@ static int    numberOpens = 0;              ///< Counts the number of times the 
 static struct class *opsysmemClass  = NULL; ///< The device-driver class struct pointer
 static struct device *opsysmemDevice = NULL; ///< The device-driver device struct pointer
 
-//This handles the buffer
-static char *buffer;
-static int buffer_size;
-static int head;
-static int tail;
-static int maxSize = 2097152;
+typedef struct list {
+	struct list_node* start;
+	struct list_node* end;
+	int size;
+} list;
 
-static int circBufPop(char *c){
-	int next;
-    // if the head isn't ahead of the tail, we don't have any characters
-    if (head == tail) return -1;
-    
-    // next is where tail will point to after this read.
-    next = tail + 1;
-    
-    if(next >= maxSize) next = 0;
-	*c = buffer[tail]; // Read data and then move
-    tail = next;       // tail to next data offset.
-    return 0;  // return success to indicate successful push.
+typedef struct list_node {
+	char *message;
+	int length;
+	struct list_node* next;
+} list_node;
+
+static list l;
+
+static int pop(){
+	int i;
+
+	// Size check
+	if(l.size == 0)
+		return -EAGAIN;
+
+	// Put the message to the user
+	for(i = 0; i < l->first.length; i++) {
+		char c;
+		put_user(c,&l->first.message[i]);
+		if(c == '\0') break;
+	}
+
+	// Remove the node and update values
+	list_node *removing = l->start;
+	l->start = removing->next;
+	l->size -= removing->length;
+	removing->message = NULL;
+	removing->next = NULL;
+	free(removing);
 }
 
-static int circBufPush(char c){
-    // next is where head will point to after this write.
-    int next;
-    next = head + 1;
-    if (next >= maxSize) next = 0;
+static int push(char *str, int len){
+	list_node node;
 
-    if (next == tail) // check if circular buffer is full
-        return -1;       // and return with an error.
+	// Total message size limit check
+	if ((l.size + len) > 2097151)
+		return -EAGAIN;
 
-    buffer[head] = c; // Load data and then move
-    head = next;            // head to next data offset.
-    return 0;  // return success to indicate successful push.
+	// Message length check
+	if (len > 4095)
+		return -EINVAL;
+
+	// Create new node and add to list
+	node = kmalloc(sizeof(list_node));
+	strcpy(str,node.message);
+	node.length = len;
+	if (l.size == 0) {
+		l.start = node;
+	} else { 
+		l.end->next = node;
+		l.end = node;
+	}
+	l.size += len;
+	return 0;
 }
 
 // The prototype functions for the character driver -- must come before the struct definition
@@ -79,7 +107,7 @@ static struct file_operations fops =
  *  @return returns 0 if successful
  */
 static int __init opsysmem_init(void){
-	buffer_size = 0;
+	l = kmalloc(sizeof(list));
 	buffer = kmalloc(buffer_size, GFP_KERNEL);
    	printk(KERN_INFO "opsysmem: Initializing the opsysmem LKM\n");
 
@@ -144,17 +172,9 @@ static int dev_open(struct inode *inodep, struct file *filep){
  *  @param offset The offset if required
  */
 static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *offset){	
-	int i;
-	int error_count = 0;
-	for(i = 0; i < len; i++) {
-		char c;
-		if (circBufPop(&c) == 0) {
-			error_count = put_user(c,&buffer[i]);
-			if(c == '\0') break;
-		} else return -EAGAIN;
-	}
-	buffer_size -= len;
-	buffer = krealloc(buffer, buffer_size, GFP_KERNEL);
+	pop();
+	//buffer_size -= len;
+	//buffer = krealloc(buffer, buffer_size, GFP_KERNEL);
 	return len;
 }
 
@@ -167,11 +187,10 @@ static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *of
  *  @param offset The offset if required
  */
 static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, loff_t *offset){
-	int i, new_buffer_size;
-	char* krealloc_attempt;
-	
-	if(len > 4095) return -EINVAL;	//message too large
-	
+	//int i, new_buffer_size;
+	//char* krealloc_attempt;
+
+	/*
 	new_buffer_size = buffer_size + (sizeof(char)*len);
 	if(new_buffer_size > maxSize)
 		return -EAGAIN;	
@@ -182,13 +201,9 @@ static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, lof
 	
 	buffer = krealloc_attempt;
 	buffer_size = new_buffer_size;
-	
-	for(i = 0; i < len; i++) {
-		if(circBufPush(buffer[i]) == -1)
-			return -EAGAIN;
-	}
-	circBufPush('\0');
-	return i;
+	*/
+	push(buffer, len);
+	return len;
 }
 
 /** @brief The device release function that is called whenever the device is closed/released by
