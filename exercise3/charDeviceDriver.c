@@ -15,29 +15,28 @@ MODULE_DESCRIPTION("A character device implementing a simple method of message p
 MODULE_VERSION("0.1");            ///< A version number to inform users
 
 static int    majorNumber;                  ///< Stores the device number -- determined automatically
-//static char   message[256] = {0};           ///< Memory for the string that is passed from userspace
-//static short  size_of_message;              ///< Used to remember the size of the string stored
 static int    numberOpens = 0;              ///< Counts the number of times the device is opened
 static struct class *opsysmemClass  = NULL; ///< The device-driver class struct pointer
 static struct device *opsysmemDevice = NULL; ///< The device-driver device struct pointer
 
 //This handles the buffer
 static char *buffer;
+static int buffer_size;
 static int head;
 static int tail;
+static int maxSize = 2097152;
 
 static int circBufPop(char *c){
 	int next;
     // if the head isn't ahead of the tail, we don't have any characters
-    if (head == tail) {		// check if circular buffer is empty
-        return -1;          // and return with an error
-	}
+    if (head == tail) return -1;
+    
     // next is where tail will point to after this read.
     next = tail + 1;
-    if(next >= 2097152)
-        next = 0;
+    
+    if(next >= maxSize) next = 0;
 	*c = buffer[tail]; // Read data and then move
-    tail = next;             // tail to next data offset.
+    tail = next;       // tail to next data offset.
     return 0;  // return success to indicate successful push.
 }
 
@@ -45,8 +44,7 @@ static int circBufPush(char c){
     // next is where head will point to after this write.
     int next;
     next = head + 1;
-    if (next >= 2097152)
-        next = 0;
+    if (next >= maxSize) next = 0;
 
     if (next == tail) // check if circular buffer is full
         return -1;       // and return with an error.
@@ -81,7 +79,8 @@ static struct file_operations fops =
  *  @return returns 0 if successful
  */
 static int __init opsysmem_init(void){
-	buffer = kmalloc(sizeof(char)*4096, GFP_KERNEL);
+	buffer_size = 0;
+	buffer = kmalloc(buffer_size, GFP_KERNEL);
    	printk(KERN_INFO "opsysmem: Initializing the opsysmem LKM\n");
 
    	// Try to dynamically allocate a major number for the device -- more difficult but worth it
@@ -154,6 +153,8 @@ static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *of
 			if(c == '\0') break;
 		} else return -EAGAIN;
 	}
+	buffer_size -= len;
+	buffer = krealloc(buffer, buffer_size, GFP_KERNEL);
 	return len;
 }
 
@@ -166,17 +167,25 @@ static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *of
  *  @param offset The offset if required
  */
 static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, loff_t *offset){
-	int i;
+	int i, new_buffer_size;
+	char* krealloc_attempt;
 	
-	if((strlen(buffer) + len) > 2097152) {
-		return -EAGAIN;
-	}
-	if(len > 4096) {
-		return -EINVAL;	
-	}
-	buffer = krealloc(buffer, (strlen(buffer)+len), GFP_KERNEL);
+	if(len > 4095) return -EINVAL;	//message too large
+	
+	new_buffer_size = buffer_size + (sizeof(char)*len);
+	if(new_buffer_size > maxSize)
+		return -EAGAIN;	
+	krealloc_attempt = krealloc(buffer, new_buffer_size, GFP_KERNEL);
+	
+	if(krealloc_attempt == NULL)
+		return -EAGAIN; //failed to realloc
+	
+	buffer = krealloc_attempt;
+	buffer_size = new_buffer_size;
+	
 	for(i = 0; i < len; i++) {
-		if(circBufPush(buffer[i]) == -1) return -EAGAIN;
+		if(circBufPush(buffer[i]) == -1)
+			return -EAGAIN;
 	}
 	circBufPush('\0');
 	return i;
