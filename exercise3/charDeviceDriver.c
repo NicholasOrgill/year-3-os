@@ -6,7 +6,7 @@
 #include <asm/uaccess.h>          // Required for the copy to user function
 #include <linux/slab.h>
 #include <linux/gfp.h>
-#include <string.h>
+
 #define  DEVICE_NAME "opsysmem"    ///< The device will appear at /dev/opsysmem using this value
 #define  CLASS_NAME  "ops"        ///< The device class -- this is a character device driver
 
@@ -32,36 +32,37 @@ typedef struct list_node {
 	struct list_node* next;
 } list_node;
 
-static list l;
+static list *l;
 
-static int pop(){
+int pop(void){
 	int i;
+	list_node *removing = l->start;
 
 	// Size check
-	if(l.size == 0)
+	if(l->size == 0)
 		return -EAGAIN;
 
 	// Put the message to the user
-	for(i = 0; i < l->first.length; i++) {
+	for(i = 0; i < l->start->length; i++) {
 		char c;
-		put_user(c,&l->first.message[i]);
+		put_user(c,&l->start->message[i]);
 		if(c == '\0') break;
 	}
 
 	// Remove the node and update values
-	list_node *removing = l->start;
 	l->start = removing->next;
 	l->size -= removing->length;
 	removing->message = NULL;
 	removing->next = NULL;
-	free(removing);
+	kfree(removing);
+	return 0;
 }
 
-static int push(char *str, int len){
-	list_node node;
+int push(const char *str, int len){
+	list_node *node;
 
 	// Total message size limit check
-	if ((l.size + len) > 2097151)
+	if ((l->size + len) > 2097151)
 		return -EAGAIN;
 
 	// Message length check
@@ -69,16 +70,16 @@ static int push(char *str, int len){
 		return -EINVAL;
 
 	// Create new node and add to list
-	node = kmalloc(sizeof(list_node));
-	strcpy(str,node.message);
-	node.length = len;
-	if (l.size == 0) {
-		l.start = node;
+	node = kmalloc(sizeof(list_node), GFP_KERNEL);
+	node->message = str;
+	node->length = len;
+	if (l->size == 0) {
+		l->start = node;
 	} else { 
-		l.end->next = node;
-		l.end = node;
+		l->end->next = node;
+		l->end = node;
 	}
-	l.size += len;
+	l->size += len;
 	return 0;
 }
 
@@ -107,8 +108,7 @@ static struct file_operations fops =
  *  @return returns 0 if successful
  */
 static int __init opsysmem_init(void){
-	l = kmalloc(sizeof(list));
-	buffer = kmalloc(buffer_size, GFP_KERNEL);
+	l = kmalloc(sizeof(list), GFP_KERNEL);
    	printk(KERN_INFO "opsysmem: Initializing the opsysmem LKM\n");
 
    	// Try to dynamically allocate a major number for the device -- more difficult but worth it
@@ -212,7 +212,6 @@ static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, lof
  *  @param filep A pointer to a file object (defined in linux/fs.h)
  */
 static int dev_release(struct inode *inodep, struct file *filep){
-	kfree(buffer);
    	printk(KERN_INFO "opsysmem: Device successfully closed\n");
    	return 0;
 }
