@@ -19,19 +19,19 @@ static int    numberOpens = 0;              ///< Counts the number of times the 
 static struct class *opsysmemClass  = NULL; ///< The device-driver class struct pointer
 static struct device *opsysmemDevice = NULL; ///< The device-driver device struct pointer
 
-struct node {
+static struct node {
 	char *message;
 	int length;
-	node* next;
-}
+	struct node* next;
+};
 
 static struct node *start;
 static int size = 0;
 
-static node new_node(char *msg, int len) {
+static void new_node(const char *msg, int len) {
 	struct node *new = kmalloc(sizeof(struct node), GFP_KERNEL);
-	new->message = kmalloc(sizeof(len));
-	new->message = msg;
+	new->message = kmalloc(sizeof(len), GFP_KERNEL);
+	copy_from_user((char *)new->message, msg, len);
 	new->length = len;
 	size+=len;
 	new->next = NULL;
@@ -42,6 +42,7 @@ static node new_node(char *msg, int len) {
 		}
 		start->next = new;
 	}
+	
 }
 
 // The prototype functions for the character driver -- must come before the struct definition
