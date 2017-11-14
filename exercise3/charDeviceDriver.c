@@ -14,7 +14,7 @@ MODULE_AUTHOR("Nicholas Orgill");    ///< The author -- visible when you use mod
 MODULE_DESCRIPTION("A character device implementing a simple method of message passing.");  ///< The description -- see modinfo
 MODULE_VERSION("0.1");            ///< A version number to inform users
 
-//DEFINE_MUTEX (devlock);
+DEFINE_MUTEX (devlock);
 
 static int    majorNumber;                  ///< Stores the device number -- determined automatically
 static int    numberOpens = 0;              ///< Counts the number of times the device is opened
@@ -115,6 +115,7 @@ static int __init opsysmem_init(void){
       	return PTR_ERR(opsysmemDevice);
    	}
    	printk(KERN_INFO "opsysmem: device class created correctly\n"); // Made it! device was initialized
+	printk(KERN_INFO "'mknod /dev/%s c %d 0'.\n", DEVICE_NAME, majorNumber);
    	return 0;
 }
 
@@ -153,9 +154,10 @@ static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *of
 	struct node *tmp;
 	int msg_length;
 
-	//mutex_lock(&devlock);
+	mutex_lock(&devlock);
 
 	if(start == NULL) {
+	mutex_unlock(&devlock);
 		return -EAGAIN;
 	}
 	copy_to_user(buffer, start->message, start->length);
@@ -165,7 +167,7 @@ static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *of
 	kfree(start->message);
 	start = start->next;
 	kfree(tmp);
-	//mutex_unlock(&devlock);
+	mutex_unlock(&devlock);
 	return msg_length;
 }
 
@@ -178,15 +180,17 @@ static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *of
  *  @param offset The offset if required
  */
 static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, loff_t *offset){
-	//mutex_lock(&devlock);
+	mutex_lock(&devlock);
 	if((size + len) > 2097152) {
+		mutex_unlock(&devlock);
 		return -EAGAIN;
 	}
 	if(len > 4096) {
+		mutex_unlock(&devlock);
 		return -EINVAL;	
 	}
 	new_node(buffer, len);
-	//mutex_unlock(&devlock);
+	mutex_unlock(&devlock);
 	return len;
 }
 
