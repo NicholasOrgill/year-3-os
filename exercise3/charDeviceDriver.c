@@ -35,31 +35,38 @@ typedef struct list_node {
 static list *l;
 
 int pop(void){
-	int i;
+	int i, len;
 	list_node *removing = l->start;
+	char *to_send;
+	
+	to_send = removing->message;
+	len = removing->length;
 
 	// Size check
 	if(l->size == 0)
 		return -EAGAIN;
 
 	// Put the message to the user
-	for(i = 0; i < l->start->length; i++) {
+	for(i = 0; i < len; i++) {
 		char c;
-		put_user(c,&l->start->message[i]);
+		c = to_send[i];
+		put_user(c,&to_send[i]);
 		if(c == '\0') break;
 	}
 
 	// Remove the node and update values
 	l->start = removing->next;
 	l->size -= removing->length;
-	removing->message = NULL;
-	removing->next = NULL;
+	kfree(removing->message);
 	kfree(removing);
 	return 0;
 }
 
 int push(const char *str, int len){
 	list_node *node;
+	char *new_message;
+	node = kmalloc(sizeof(list_node), GFP_KERNEL);
+	new_message = kmalloc(len, GFP_KERNEL);
 
 	// Total message size limit check
 	if ((l->size + len) > 2097151)
@@ -70,8 +77,9 @@ int push(const char *str, int len){
 		return -EINVAL;
 
 	// Create new node and add to list
-	node = kmalloc(sizeof(list_node), GFP_KERNEL);
-	node->message = str;
+	
+	node->message = new_message;
+	strcpy(node->message, str);
 	node->length = len;
 	if (l->size == 0) {
 		l->start = node;
