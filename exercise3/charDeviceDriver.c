@@ -15,45 +15,33 @@ MODULE_DESCRIPTION("A character device implementing a simple method of message p
 MODULE_VERSION("0.1");            ///< A version number to inform users
 
 static int    majorNumber;                  ///< Stores the device number -- determined automatically
-//static char   message[256] = {0};           ///< Memory for the string that is passed from userspace
-//static short  size_of_message;              ///< Used to remember the size of the string stored
 static int    numberOpens = 0;              ///< Counts the number of times the device is opened
 static struct class *opsysmemClass  = NULL; ///< The device-driver class struct pointer
 static struct device *opsysmemDevice = NULL; ///< The device-driver device struct pointer
 
-//This handles the buffer
-static char *buffer;
-static int head;
-static int tail;
-
-static int circBufPop(char *c){
-	int next;
-    // if the head isn't ahead of the tail, we don't have any characters
-    if (head == tail) {		// check if circular buffer is empty
-        return -1;          // and return with an error
-	}
-    // next is where tail will point to after this read.
-    next = tail + 1;
-    if(next >= 2097152)
-        next = 0;
-	*c = buffer[tail]; // Read data and then move
-    tail = next;             // tail to next data offset.
-    return 0;  // return success to indicate successful push.
+struct node {
+	char *message;
+	int length;
+	node* next;
 }
 
-static int circBufPush(char c){
-    // next is where head will point to after this write.
-    int next;
-    next = head + 1;
-    if (next >= 2097152)
-        next = 0;
+static struct node *start;
+static int size = 0;
 
-    if (next == tail) // check if circular buffer is full
-        return -1;       // and return with an error.
-
-    buffer[head] = c; // Load data and then move
-    head = next;            // head to next data offset.
-    return 0;  // return success to indicate successful push.
+static node new_node(char *msg, int len) {
+	struct node *new = kmalloc(sizeof(struct node), GFP_KERNEL);
+	new->message = kmalloc(sizeof(len));
+	new->message = msg;
+	new->length = len;
+	size+=len;
+	new->next = NULL;
+	if(start == NULL) start = new;
+	else {
+		while(start->next != NULL) {
+			start = start->next;
+		}
+		start->next = new;
+	}
 }
 
 // The prototype functions for the character driver -- must come before the struct definition
@@ -81,7 +69,6 @@ static struct file_operations fops =
  *  @return returns 0 if successful
  */
 static int __init opsysmem_init(void){
-	buffer = kmalloc(sizeof(char)*4096, GFP_KERNEL);
    	printk(KERN_INFO "opsysmem: Initializing the opsysmem LKM\n");
 
    	// Try to dynamically allocate a major number for the device -- more difficult but worth it
@@ -144,17 +131,21 @@ static int dev_open(struct inode *inodep, struct file *filep){
  *  @param len The length of the b
  *  @param offset The offset if required
  */
-static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *offset){	
-	int i;
-	int error_count = 0;
-	for(i = 0; i < len; i++) {
-		char c;
-		if (circBufPop(&c) == 0) {
-			error_count = put_user(c,&buffer[i]);
-			if(c == '\0') break;
-		} else return -EAGAIN;
+static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *offset){
+	struct node *tmp;
+	int msg_length;
+
+	if(start == NULL) {
+		return -EAGAIN;
 	}
-	return len;
+	copy_to_user(buffer, start->message, start->length);
+	msg_length = start->length;
+	size-=msg_length;
+	tmp = start;
+	kfree(start->message);
+	start = start->next;
+	kfree(tmp);
+	return msg_length;
 }
 
 /** @brief This function is called whenever the device is being written to from user space i.e.
@@ -166,20 +157,14 @@ static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *of
  *  @param offset The offset if required
  */
 static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, loff_t *offset){
-	int i;
-	
-	if((strlen(buffer) + len) > 2097152) {
+	if(size > 2097152) {
 		return -EAGAIN;
 	}
 	if(len > 4096) {
 		return -EINVAL;	
 	}
-	buffer = krealloc(buffer, (strlen(buffer)+len), GFP_KERNEL);
-	for(i = 0; i < len; i++) {
-		if(circBufPush(buffer[i]) == -1) return -EAGAIN;
-	}
-	circBufPush('\0');
-	return i;
+	new_node(buffer, len);
+	return len;
 }
 
 /** @brief The device release function that is called whenever the device is closed/released by
@@ -188,7 +173,6 @@ static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, lof
  *  @param filep A pointer to a file object (defined in linux/fs.h)
  */
 static int dev_release(struct inode *inodep, struct file *filep){
-	kfree(buffer);
    	printk(KERN_INFO "opsysmem: Device successfully closed\n");
    	return 0;
 }
