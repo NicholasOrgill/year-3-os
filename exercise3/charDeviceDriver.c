@@ -14,6 +14,8 @@ MODULE_AUTHOR("Nicholas Orgill");    ///< The author -- visible when you use mod
 MODULE_DESCRIPTION("A character device implementing a simple method of message passing.");  ///< The description -- see modinfo
 MODULE_VERSION("0.1");            ///< A version number to inform users
 
+//DEFINE_MUTEX (devlock);
+
 static int    majorNumber;                  ///< Stores the device number -- determined automatically
 static int    numberOpens = 0;              ///< Counts the number of times the device is opened
 static struct class *opsysmemClass  = NULL; ///< The device-driver class struct pointer
@@ -27,6 +29,7 @@ static struct node {
 
 static struct node *start;
 static int size = 0;
+
 
 static void new_node(const char *msg, int len) {
 	struct node *new = kmalloc(sizeof(struct node), GFP_KERNEL);
@@ -46,10 +49,11 @@ static void new_node(const char *msg, int len) {
 }
 
 // The prototype functions for the character driver -- must come before the struct definition
-static int     dev_open(struct inode *, struct file *);
-static int     dev_release(struct inode *, struct file *);
-static ssize_t dev_read(struct file *, char *, size_t, loff_t *);
-static ssize_t dev_write(struct file *, const char *, size_t, loff_t *);
+static long    	device_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param);
+static int     	dev_open(struct inode *, struct file *);
+static int    	dev_release(struct inode *, struct file *);
+static ssize_t	dev_read(struct file *, char *, size_t, loff_t *);
+static ssize_t	dev_write(struct file *, const char *, size_t, loff_t *);
 
 /** @brief Devices are represented as file structure in the kernel. The file_operations structure from
  *  /linux/fs.h lists the callback functions that you wish to associated with your file operations
@@ -57,11 +61,24 @@ static ssize_t dev_write(struct file *, const char *, size_t, loff_t *);
  */
 static struct file_operations fops =
 {
+	.unlocked_ioctl = device_ioctl,
    	.open = dev_open,
    	.read = dev_read,
    	.write = dev_write,
    	.release = dev_release,
 };
+
+static int counter = 0;
+static long device_ioctl(struct file *file, unsigned int ioctl_num, unsigned long ioctl_param) {
+	if (ioctl_num == 0) {
+    	counter = 0;
+    	/*         return 0; */
+    	return 5; /* can pass integer as return value */
+	} else {
+    	/* no operation defined - return failure */
+    	return -EINVAL;
+	}
+}
 
 /** @brief The LKM initialization function
  *  The static keyword restricts the visibility of the function to within this C file. The __init
@@ -136,6 +153,8 @@ static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *of
 	struct node *tmp;
 	int msg_length;
 
+	//mutex_lock(&devlock);
+
 	if(start == NULL) {
 		return -EAGAIN;
 	}
@@ -146,6 +165,7 @@ static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *of
 	kfree(start->message);
 	start = start->next;
 	kfree(tmp);
+	//mutex_unlock(&devlock);
 	return msg_length;
 }
 
@@ -158,13 +178,15 @@ static ssize_t dev_read(struct file *filep, char *buffer, size_t len, loff_t *of
  *  @param offset The offset if required
  */
 static ssize_t dev_write(struct file *filep, const char *buffer, size_t len, loff_t *offset){
-	if(size > 2097152) {
+	//mutex_lock(&devlock);
+	if((size + len) > 2097152) {
 		return -EAGAIN;
 	}
 	if(len > 4096) {
 		return -EINVAL;	
 	}
 	new_node(buffer, len);
+	//mutex_unlock(&devlock);
 	return len;
 }
 
