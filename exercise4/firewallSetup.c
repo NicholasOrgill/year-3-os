@@ -3,6 +3,26 @@
 #include <string.h>
 #include <unistd.h>
 
+void valid_line(char *line) {
+	char *port;
+	char *exec;
+	int port_no;
+	
+	port = strtok(line, " ");
+	exec = strtok(NULL, "\n");
+	port_no = atoi(port);
+	
+	if (port_no != 80) {
+		fprintf(stderr, "ERROR: Ill-formed file\n");
+		exit(1);
+	}
+	
+	if (access(exec, F_OK) == -1) {
+		fprintf(stderr, "ERROR: Cannot execute file\n");
+		exit(1);
+	}
+}
+
 int main(int argc, char **argv) {
 	FILE *fp;
 	
@@ -24,6 +44,13 @@ int main(int argc, char **argv) {
 			valid = 0;
 		} else if (access(argv[2], F_OK) == -1) {
 			valid = 0;
+		} else {
+			FILE *txtfp;
+			txtfp = fopen(argv[2], "r");
+			char l[128];
+			while(fgets(l, sizeof(line), txtfp) != NULL) {
+				valid_line(l);
+			}
 		}
 	} else {
 		valid = 0;
