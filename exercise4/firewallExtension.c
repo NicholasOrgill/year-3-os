@@ -8,18 +8,18 @@
 #include <linux/namei.h>
 #include <linux/version.h>
 
-MODULE_AUTHOR("Nicholas Orgill");
-MODULE_DESCRIPTION("Extensions to the firewall") ;
+MODULE_AUTHOR ("Eike Ritter <E.Ritter@cs.bham.ac.uk>");
+MODULE_DESCRIPTION ("Extensions to the firewall") ;
 MODULE_LICENSE("GPL");
 
 
 /* make IP4-addresses readable */
 
 #define NIPQUAD(addr) \
-	((unsigned char *)&addr)[0], \
-	((unsigned char *)&addr)[1], \
-	((unsigned char *)&addr)[2], \
-	((unsigned char *)&addr)[3]
+        ((unsigned char *)&addr)[0], \
+        ((unsigned char *)&addr)[1], \
+        ((unsigned char *)&addr)[2], \
+        ((unsigned char *)&addr)[3]
 
 
 struct nf_hook_ops *reg;
@@ -29,54 +29,61 @@ struct nf_hook_ops *reg;
 #error "Kernel version < 4.4 not supported!"
 //kernels < 4.4 need another firewallhook!
 #endif
-unsigned int FirewallExtensionHook(void *priv, struct sk_buff *skb, const struct nf_hook_state *state) {
+unsigned int FirewallExtensionHook (void *priv,
+				    struct sk_buff *skb,
+				    const struct nf_hook_state *state) {
+
     struct tcphdr *tcp;
     struct tcphdr _tcph;
     struct sock *sk;
     struct mm_struct *mm;
 
-  	sk = skb->sk;
 
- 	if (!sk) {
-    	printk (KERN_INFO "firewall: netfilter called with empty socket!\n");;
-    	return NF_ACCEPT;
-  	}
+  sk = skb->sk;
+  if (!sk) {
+    printk (KERN_INFO "firewall: netfilter called with empty socket!\n");;
+    return NF_ACCEPT;
+  }
 
-  	if (sk->sk_protocol != IPPROTO_TCP) {
-    	printk (KERN_INFO "firewall: netfilter called with non-TCP-packet.\n");
-    	return NF_ACCEPT;
-  	}
+  if (sk->sk_protocol != IPPROTO_TCP) {
+    printk (KERN_INFO "firewall: netfilter called with non-TCP-packet.\n");
+    return NF_ACCEPT;
+  }
+
+    
 
     /* get the tcp-header for the packet */
     tcp = skb_header_pointer(skb, ip_hdrlen(skb), sizeof(struct tcphdr), &_tcph);
     if (!tcp) {
-		printk (KERN_INFO "Could not get tcp-header!\n");
-		return NF_ACCEPT;
+	printk (KERN_INFO "Could not get tcp-header!\n");
+	return NF_ACCEPT;
     }
-    
-	if (tcp->syn) {
-		struct iphdr *ip;
+    if (tcp->syn) {
+	struct iphdr *ip;
 	
-		printk (KERN_INFO "firewall: Starting connection \n");
-		ip = ip_hdr (skb);
-		if (!ip) {
-	 		printk (KERN_INFO "firewall: Cannot get IP header!\n!");
-		} else {
-	    	printk (KERN_INFO "firewall: Destination address = %u.%u.%u.%u\n", NIPQUAD(ip->daddr));
-		}
-		printk (KERN_INFO "firewall: destination port = %d\n", ntohs(tcp->dest)); 
+	printk (KERN_INFO "firewall: Starting connection \n");
+	ip = ip_hdr (skb);
+	if (!ip) {
+	    printk (KERN_INFO "firewall: Cannot get IP header!\n!");
+	}
+	else {
+	    printk (KERN_INFO "firewall: Destination address = %u.%u.%u.%u\n", NIPQUAD(ip->daddr));
+	}
+	printk (KERN_INFO "firewall: destination port = %d\n", ntohs(tcp->dest)); 
+		
+	
 
-		if (in_irq() || in_softirq() || !(mm = get_task_mm(current))) {
-			printk (KERN_INFO "Not in user context - retry packet\n");
-			return NF_ACCEPT;
-		}
-		mmput(mm);
+	if (in_irq() || in_softirq() || !(mm = get_task_mm(current))) {
+		printk (KERN_INFO "Not in user context - retry packet\n");
+		return NF_ACCEPT;
+	}
+	mmput(mm);
 
-		if (ntohs (tcp->dest) == 80) {
-	    	tcp_done (sk); /* terminate connection immediately */
-	    	printk (KERN_INFO "Connection shut down\n");
-	    	return NF_DROP;
-		}
+	if (ntohs (tcp->dest) == 80) {
+	    tcp_done (sk); /* terminate connection immediately */
+	    printk (KERN_INFO "Connection shut down\n");
+	    return NF_DROP;
+	}
     }
     return NF_ACCEPT;	
 }
@@ -88,22 +95,27 @@ static struct nf_hook_ops firewallExtension_ops = {
 	.hooknum = NF_INET_LOCAL_OUT
 };
 
-int init_module(void) {
-  	int errno;
+int init_module(void)
+{
 
-  	errno = nf_register_hook (&firewallExtension_ops); /* register the hook */
-  	if (errno) {
-  		printk (KERN_INFO "Firewall extension could not be registered!\n");
-  	} else {
-    	printk(KERN_INFO "Firewall extensions module loaded\n");
-  	}
+  int errno;
 
-  	// A non 0 return means init_module failed; module can't be loaded.
-  	return errno;
+  errno = nf_register_hook (&firewallExtension_ops); /* register the hook */
+  if (errno) {
+    printk (KERN_INFO "Firewall extension could not be registered!\n");
+  } 
+  else {
+    printk(KERN_INFO "Firewall extensions module loaded\n");
+  }
+
+  // A non 0 return means init_module failed; module can't be loaded.
+  return errno;
 }
 
 
-void cleanup_module(void) {
+void cleanup_module(void)
+{
+
     nf_unregister_hook (&firewallExtension_ops); /* restore everything to normal */
     printk(KERN_INFO "Firewall extensions module unloaded\n");
 }  

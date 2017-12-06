@@ -1,3 +1,6 @@
+/*  hello.c - The simplest kernel module.
+ */
+
 #include <linux/module.h>  /* Needed by all modules */
 #include <linux/kernel.h>  /* Needed for KERN_ALERT */
 #include <linux/namei.h>
@@ -7,11 +10,14 @@
 
 #define BUFFERSIZE 80
 
-MODULE_AUTHOR ("Nicholas Orgill");
+MODULE_AUTHOR ("Eike Ritter <E.Ritter@cs.bham.ac.uk>");
 MODULE_DESCRIPTION ("Finding executable") ;
 MODULE_LICENSE("GPL");
 
-int init_module(void) {
+
+
+int init_module(void)
+{
     struct path path;
     pid_t mod_pid;
     struct dentry *procDentry;
@@ -26,8 +32,8 @@ int init_module(void) {
     snprintf (cmdlineFile, BUFFERSIZE, "/proc/%d/exe", mod_pid); 
     res = kern_path (cmdlineFile, LOOKUP_FOLLOW, &path);
     if (res) {
-		printk (KERN_INFO "Could not get dentry for %s!\n", cmdlineFile);
-		return -EFAULT;
+	printk (KERN_INFO "Could not get dentry for %s!\n", cmdlineFile);
+	return -EFAULT;
     }
     
     procDentry = path.dentry;
@@ -40,6 +46,7 @@ int init_module(void) {
 }
 
 
-void cleanup_module(void) {
+void cleanup_module(void)
+{
     printk(KERN_INFO "findExecutable module unloading \n");
 }  
