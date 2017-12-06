@@ -40,10 +40,9 @@ unsigned int FirewallExtensionHook (void *priv,
 
   	sk = skb->sk;
   	if (!sk) {
-    	printk (KERN_INFO "firewall: netfilter called with empty socket!\n");;
+    	printk (KERN_INFO "firewall: netfilter called with empty socket!\n");
     	return NF_ACCEPT;
   	}
-
   	if (sk->sk_protocol != IPPROTO_TCP) {
     	printk (KERN_INFO "firewall: netfilter called with non-TCP-packet.\n");
     	return NF_ACCEPT;

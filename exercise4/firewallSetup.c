@@ -63,7 +63,7 @@ int main(int argc, char **argv) {
 	}
 	
 	fp = fopen("/proc/firewallExtension", "w");
-	if(msg_concat == 1) {
+	if (msg_concat == 1) {
 		fprintf(fp, "%s %s", argv[1], argv[2]);
 	} else {
 		fprintf(fp, "%s", argv[1]);
